@@ -1,13 +1,12 @@
 use anyhow::{Context as AnyhowContext, Result};
-use poise::{Framework};
-use serenity::all::{GatewayIntents, GuildId, ClientBuilder};
+use poise::Framework;
+use serenity::all::{ClientBuilder, GatewayIntents, GuildId};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-use crate::commands::{settings, userinfo, stats, lookup_ac};
+use crate::commands::{lookup_ac, settings, stats, userinfo};
 use crate::events::event_handler;
 use crate::state::AppState;
-
 
 pub async fn run() -> Result<()> {
     dotenvy::dotenv().ok();
@@ -15,11 +14,17 @@ pub async fn run() -> Result<()> {
         .with_env_filter(EnvFilter::from_default_env())
         .init();
 
-    let token = std::env::var("DISCORD_TOKEN")
-        .context("Set DISCORD_TOKEN in env")?;
+    let token = std::env::var("DISCORD_TOKEN").context("Set DISCORD_TOKEN in env")?;
     let db_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://bot.db".into());
 
-    let token_tail = token.chars().rev().take(6).collect::<String>().chars().rev().collect::<String>();
+    let token_tail = token
+        .chars()
+        .rev()
+        .take(6)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect::<String>();
     info!("Starting bot with DB: {db_url}");
     info!("Discord token: ...{token_tail} (len={})", token.len());
 
@@ -43,7 +48,8 @@ pub async fn run() -> Result<()> {
         })
         .setup(move |ctx, _ready, framework| {
             Box::pin(async move {
-                // NOTE: if you want global commands, change this.
+                poise::builtins::register_globally(ctx, &framework.options().commands).await?;
+                // Register commands in a specific guild for faster iteration during development
                 poise::builtins::register_in_guild(
                     ctx,
                     &framework.options().commands,
