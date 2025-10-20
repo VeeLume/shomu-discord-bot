@@ -1,4 +1,5 @@
 /target
-*.db
 .env
-bot.db-wal
+*.db
+*.db-wal
+*.db-shm

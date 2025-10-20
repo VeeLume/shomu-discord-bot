@@ -1,6 +1,6 @@
 use anyhow::{Context as AnyhowContext, Result};
-use poise::Framework;
-use serenity::all::{ClientBuilder, GatewayIntents, GuildId};
+use poise::{Command, Framework};
+use serenity::all::{CacheHttp, ClientBuilder, GatewayIntents, GuildId};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -16,6 +16,7 @@ pub async fn run() -> Result<()> {
 
     let token = std::env::var("DISCORD_TOKEN").context("Set DISCORD_TOKEN in env")?;
     let db_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://bot.db".into());
+    let test_guild = std::env::var("TEST_GUILD_ID").ok();
 
     let token_tail = token
         .chars()
@@ -48,14 +49,34 @@ pub async fn run() -> Result<()> {
         })
         .setup(move |ctx, _ready, framework| {
             Box::pin(async move {
-                poise::builtins::register_globally(ctx, &framework.options().commands).await?;
+                match poise::builtins::register_globally(ctx, &framework.options().commands).await {
+                    Ok(_) => info!("Registered application commands globally"),
+                    Err(e) => eprintln!("Failed to register application commands globally: {e:#}"),
+                }
                 // Register commands in a specific guild for faster iteration during development
-                poise::builtins::register_in_guild(
-                    ctx,
-                    &framework.options().commands,
-                    GuildId::new(1429268494687408232),
-                )
-                .await?;
+                if let Some(gid) = test_guild.as_ref() {
+                    let gid = gid
+                        .parse::<u64>()
+                        .context("TEST_GUILD_ID must be a valid u64")?;
+                    poise::builtins::register_in_guild(
+                        ctx,
+                        &framework.options().commands,
+                        GuildId::new(gid),
+                    )
+                    .await?;
+
+                }
+
+                match ctx.http().get_global_commands().await {
+                    Ok(cmds) => {
+                        info!("Currently registered global commands:");
+                        for cmd in cmds {
+                            info!(" - {} (ID {})", cmd.name, cmd.id);
+                        }
+                    }
+                    Err(e) => eprintln!("Failed to fetch global commands: {e:#}"),
+                }
+
                 AppState::new(&db_url).await
             })
         })
