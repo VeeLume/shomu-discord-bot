@@ -11,5 +11,6 @@ mod db;
 async fn main() {
     if let Err(e) = app::run().await {
         eprintln!("Fatal error: {e:#}");
+        std::process::exit(1);
     }
 }

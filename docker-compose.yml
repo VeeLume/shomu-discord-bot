@@ -1,17 +1,19 @@
 services:
   bot:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     image: shomu-discord-bot:latest
     container_name: shomu-discord-bot
     restart: unless-stopped
     environment:
-      # Provide your token securely (compose overrides, env file, or CI secret)
       DISCORD_TOKEN: ${DISCORD_TOKEN}
-      # If you want a different path/filename for the db, override here:
-      # DATABASE_URL: sqlite:///data/bot.db
       RUST_LOG: info
+      TZ: UTC
+      # DATABASE_URL: sqlite:///data/bot.db  # optional override
     volumes:
-      - ./data:/data
-    # no ports needed; Discord gateway is outbound
+      - bot_data:/data
+    # Important for signal handling/zombie reaping with scratch
+    init: true
 volumes:
   bot_data:

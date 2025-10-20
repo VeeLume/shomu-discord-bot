@@ -1,6 +1,7 @@
 use anyhow::{Context as AnyhowContext, Result};
 use poise::{Framework};
 use serenity::all::{GatewayIntents, GuildId, ClientBuilder};
+use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 use crate::commands::{settings, userinfo, stats, lookup_ac};
@@ -17,6 +18,10 @@ pub async fn run() -> Result<()> {
     let token = std::env::var("DISCORD_TOKEN")
         .context("Set DISCORD_TOKEN in env")?;
     let db_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://bot.db".into());
+
+    let token_tail = token.chars().rev().take(6).collect::<String>().chars().rev().collect::<String>();
+    info!("Starting bot with DB: {db_url}");
+    info!("Discord token: ...{token_tail} (len={})", token.len());
 
     let intents = GatewayIntents::GUILD_MEMBERS;
 
@@ -50,10 +55,24 @@ pub async fn run() -> Result<()> {
         })
         .build();
 
-    let client = ClientBuilder::new(token, intents)
+    // --- Serenity client ---
+    // Build the client and attach the framework
+    let mut client = ClientBuilder::new(token, intents)
         .framework(framework)
-        .await;
+        .await
+        .context("Building serenity client failed")?;
 
-    client.unwrap().start().await.unwrap();
-    Ok(())
+    // This should BLOCK until the shard runner ends (or we get a fatal error).
+    // If it returns, we log and return an Err so Docker sees a non-zero exit.
+    info!("Connecting to Discord gateway…");
+    if let Err(e) = client.start().await {
+        // Network/auth/config error -> fail non-zero
+        return Err(anyhow::anyhow!("Discord client error: {e:#}"));
+    }
+
+    // If we got here, the shard runner ended gracefully.
+    // Treat this as an error so the container doesn't loop silently.
+    Err(anyhow::anyhow!(
+        "Discord client stopped unexpectedly without error"
+    ))
 }

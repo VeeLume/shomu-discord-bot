@@ -1,64 +1,50 @@
 # syntax=docker/dockerfile:1.7
 
 ############################
-# Builder image
+# Builder (musl)
 ############################
-FROM rust:1-bookworm AS builder
-
-# If you use sqlx::query! macros, you want offline mode so the build
-# doesn't need a live DB connection. This expects sqlx-data.json in repo.
+FROM rust:1-alpine AS builder
+RUN apk add --no-cache musl-dev pkgconfig build-base ca-certificates
 ENV SQLX_OFFLINE=true
-
-# Build deps for sqlite
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    pkg-config libsqlite3-dev ca-certificates \
- && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
 
-# --- Dependency caching trick ---
-# 1) copy manifests only
+# Cache deps
 COPY Cargo.toml Cargo.lock ./
-
-# 2) fake src to prebuild deps
 RUN mkdir -p src && printf "fn main() {}\n" > src/main.rs
+RUN cargo build --release --target x86_64-unknown-linux-musl || true
 
-# 3) prebuild to cache dependencies
-RUN cargo build --release || true
-
-# 4) now bring in real source
+# Real build
 RUN rm -rf src
 COPY . .
+RUN rustup target add x86_64-unknown-linux-musl
+RUN cargo build --release --target x86_64-unknown-linux-musl
 
-# Build the real binary
-RUN cargo build --release
+# Prepare an owned data dir we can copy into scratch
+RUN mkdir -p /data-owned
 
 ############################
-# Runtime image
+# Runtime (scratch)
 ############################
-FROM debian:bookworm-slim AS runtime
+FROM scratch
 
-# Only the bare runtime deps
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates libsqlite3-0 tzdata dumb-init \
- && rm -rf /var/lib/apt/lists/*
+# TLS certs for HTTPS
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
-# Non-root user
-RUN useradd -m -u 10001 appuser
+# App binary
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/shomu-discord-bot /app
 
-# App directory for data (SQLite file lives here by default)
-RUN mkdir -p /data && chown -R appuser:appuser /data
+# Pre-create /data owned by non-root
+COPY --from=builder --chown=10001:10001 /data-owned /data
 
-# Copy the binary
-COPY --from=builder /app/target/release/shomu-discord-bot /usr/local/bin/app
+# Run as non-root
+USER 10001:10001
 
+# Defaults (UTC)
 ENV RUST_LOG=info \
-    # Default DB path; override in docker run/compose if you prefer
-    DATABASE_URL=sqlite:///data/bot.db
+    DATABASE_URL=sqlite:///data/bot.db \
+    TZ=UTC
 
 VOLUME ["/data"]
 
-USER appuser
-
-ENTRYPOINT ["dumb-init","--"]
-CMD ["/usr/local/bin/app"]
+# Use --init in run/compose for clean PID1 handling
+ENTRYPOINT ["/app"]
