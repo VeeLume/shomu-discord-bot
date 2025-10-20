@@ -1,0 +1,44 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT joined_at,\n                   left_at,\n                   banned        AS \"banned: bool\",\n                   account_username,\n                   server_username\n            FROM memberships\n            WHERE guild_id = ? AND user_id = ?\n            ORDER BY id ASC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "joined_at",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "left_at",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "banned: bool",
+        "ordinal": 2,
+        "type_info": "Bool"
+      },
+      {
+        "name": "account_username",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "server_username",
+        "ordinal": 4,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "741546c4c421812ccbee2aa69128599f3fabbe13d67e69a114aa9f1455112721"
+}

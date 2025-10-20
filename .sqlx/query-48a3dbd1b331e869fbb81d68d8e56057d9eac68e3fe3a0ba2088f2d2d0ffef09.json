@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT INTO memberships (\n                guild_id, user_id, joined_at, left_at, banned,\n                account_username, server_username\n            )\n            VALUES (?, ?, ?, NULL, 0, ?, ?)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "48a3dbd1b331e869fbb81d68d8e56057d9eac68e3fe3a0ba2088f2d2d0ffef09"
+}
