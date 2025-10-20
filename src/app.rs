@@ -28,7 +28,7 @@ pub async fn run() -> Result<()> {
     info!("Starting bot with DB: {db_url}");
     info!("Discord token: ...{token_tail} (len={})", token.len());
 
-    let intents = GatewayIntents::GUILD_MEMBERS;
+    let intents = GatewayIntents::GUILD_MEMBERS | GatewayIntents::non_privileged();
 
     let framework = Framework::builder()
         .options(poise::FrameworkOptions {
