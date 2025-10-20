@@ -9,6 +9,7 @@ mod db;
 
 #[tokio::main]
 async fn main() {
+    eprintln!("boot: entering main");
     if let Err(e) = app::run().await {
         eprintln!("Fatal error: {e:#}");
         std::process::exit(1);
