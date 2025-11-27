@@ -42,6 +42,9 @@ RUN cargo chef prepare --recipe-path recipe.json
 FROM chef AS builder
 WORKDIR /app
 
+# re-declare args in this stage so ${BIN_NAME} is available
+ARG BIN_NAME=shomu-discord-bot
+
 COPY --from=planner /app/recipe.json /app/recipe.json
 
 # Cache registry + git between builds (BuildKit)
@@ -54,8 +57,8 @@ COPY . .
 
 RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=cargo-git,target=/usr/local/cargo/git \
-    cargo build --release --target x86_64-unknown-linux-musl --bin ${BIN_NAME} \
- && strip target/x86_64-unknown-linux-musl/release/${BIN_NAME}
+    cargo build --release --target x86_64-unknown-linux-musl --bin "${BIN_NAME}" \
+ && strip "target/x86_64-unknown-linux-musl/release/${BIN_NAME}"
 
 # Prepare an owned data dir we can copy into scratch
 RUN mkdir -p /data-owned
@@ -65,11 +68,14 @@ RUN mkdir -p /data-owned
 ################
 FROM scratch
 
+# re-declare so COPY can use it here too (optional, but clearer)
+ARG BIN_NAME=shomu-discord-bot
+
 # TLS certs for HTTPS
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
 # App binary
-COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/${BIN_NAME} /app
+COPY --from=builder "/app/target/x86_64-unknown-linux-musl/release/${BIN_NAME}" /app
 
 # Pre-create /data owned by non-root
 COPY --from=builder --chown=10001:10001 /data-owned /data
