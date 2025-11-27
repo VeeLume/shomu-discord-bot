@@ -715,7 +715,7 @@ pub struct ExitRow {
 pub struct StatsCurrent {
     pub current_members: i64, // DISTINCT user_id with left_at IS NULL
     pub unique_ever: i64,     // DISTINCT user_id seen ever
-    pub total_rejoins: i64,   // total rows
+    pub total_rejoins: i64,   // total server stays recorded (rows in memberships)
     pub total_exits: i64,     // rows with left_at NOT NULL
     pub total_banned: i64,    // rows with left_at NOT NULL AND banned=1
 }

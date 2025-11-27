@@ -1,26 +1,52 @@
 use anyhow::Result;
-use chrono::Datelike;
 use poise::serenity_prelude as serenity;
 
+use crate::commands::send_chunked_embeds;
 use crate::repos::MembershipsRepo;
 use crate::state::Ctx;
 
-/// Top users who rejoined (had multiple stints).
-#[poise::command(slash_command, guild_only)]
+/// Helper: choose a nice label from names or fall back to user id mention.
+fn format_member_label(
+    user_id: &str,
+    account_username: &Option<String>,
+    server_username: &Option<String>,
+) -> String {
+    match (server_username.as_deref(), account_username.as_deref()) {
+        (Some(nick), Some(acc)) if !nick.is_empty() => format!("{nick} (aka {acc})"),
+        (_, Some(acc)) => acc.to_string(),
+        (Some(nick), None) => nick.to_string(),
+        _ => format!("<@{user_id}>"),
+    }
+}
+
+/// `/stats` parent command. All real work happens in subcommands.
+#[poise::command(
+    slash_command,
+    guild_only,
+    subcommands(
+        "stats_current",
+        "stats_rejoiners",
+        "stats_exits",
+        "stats_member_balance"
+    ),
+    rename = "stats"
+)]
+pub async fn stats(_: Ctx<'_>) -> Result<()> {
+    Ok(())
+}
+
+/// Top users who rejoined
+#[poise::command(slash_command, guild_only, rename = "rejoins")]
 pub async fn stats_rejoiners(
     ctx: Ctx<'_>,
-    #[description = "Minimum rejoins (default 2)"] min_rejoins: Option<i64>,
+    #[description = "Minimum joins (default 2)"] min_joins: Option<i64>,
     #[description = "Max users to show (default 15)"] limit: Option<i64>,
 ) -> Result<()> {
-    let gid = match ctx.guild_id() {
-        Some(g) => g,
-        None => {
-            ctx.say("Guild-only").await?;
-            return Ok(());
-        }
-    };
+    let gid = ctx
+        .guild_id()
+        .expect("guild_only command should always have a guild_id");
 
-    let min_rejoins = min_rejoins.unwrap_or(2).max(2);
+    let min_rejoins = min_joins.unwrap_or(2).max(2);
     let limit = limit.unwrap_or(15).clamp(1, 100);
 
     let repo = MembershipsRepo::new(&ctx.data().db);
@@ -34,28 +60,37 @@ pub async fn stats_rejoiners(
 
     let mut lines = Vec::with_capacity(rows.len());
     for r in rows {
-        let label = match (r.server_username.as_deref(), r.account_username.as_deref()) {
-            (Some(nick), Some(acc)) if !nick.is_empty() => format!("{nick} (aka {acc})"),
-            (_, Some(acc)) => acc.to_string(),
-            (Some(nick), None) => nick.to_string(),
-            _ => format!("<@{}>", r.user_id),
-        };
+        let label = format_member_label(&r.user_id, &r.account_username, &r.server_username);
         lines.push(format!(
             "• {label} — {} rejoins ({} exits)",
             r.rejoin_count, r.times_left
         ));
     }
 
-    let embed = serenity::CreateEmbed::new()
-        .title(format!("Rejoiners (≥{} rejoins)", min_rejoins))
-        .description(lines.join("\n"));
+    let base_title = format!("Rejoiners (≥{} rejoins)", min_rejoins);
+    let base_title_cont = base_title.clone();
 
-    ctx.send(poise::CreateReply::default().embed(embed)).await?;
+    send_chunked_embeds(
+        ctx,
+        lines,
+        move |desc| {
+            serenity::CreateEmbed::new()
+                .title(base_title.clone())
+                .description(desc)
+        },
+        move |idx, desc| {
+            serenity::CreateEmbed::new()
+                .title(format!("{base_title_cont} — cont. #{idx}"))
+                .description(desc)
+        },
+    )
+    .await?;
+
     Ok(())
 }
 
 /// Recent exits with left vs banned split.
-#[poise::command(slash_command, guild_only)]
+#[poise::command(slash_command, guild_only, rename = "exits")]
 pub async fn stats_exits(
     ctx: Ctx<'_>,
     #[description = "Look back this many days (default 30)"] days: Option<i64>,
@@ -63,13 +98,9 @@ pub async fn stats_exits(
 ) -> Result<()> {
     use chrono::{DateTime, Duration, Utc};
 
-    let gid = match ctx.guild_id() {
-        Some(g) => g,
-        None => {
-            ctx.say("Guild-only").await?;
-            return Ok(());
-        }
-    };
+    let gid = ctx
+        .guild_id()
+        .expect("guild_only command should always have a guild_id");
 
     let days = days.unwrap_or(30).clamp(1, 365);
     let show = show.unwrap_or(20).clamp(1, 100);
@@ -119,12 +150,7 @@ pub async fn stats_exits(
     lines.push("".into());
 
     for (_, r) in filtered.iter().take(show as usize) {
-        let label = match (r.server_username.as_deref(), r.account_username.as_deref()) {
-            (Some(nick), Some(acc)) if !nick.is_empty() => format!("{nick} (aka {acc})"),
-            (_, Some(acc)) => acc.to_string(),
-            (Some(nick), None) => nick.to_string(),
-            _ => format!("<@{}>", r.user_id),
-        };
+        let label = format_member_label(&r.user_id, &r.account_username, &r.server_username);
 
         // Discord timestamp token
         let ts = if let Ok(dt) = chrono::DateTime::parse_from_rfc2822(&r.left_at) {
@@ -137,24 +163,34 @@ pub async fn stats_exits(
         lines.push(format!("• {label} — {kind} — {ts}"));
     }
 
-    let embed = serenity::CreateEmbed::new()
-        .title(format!("Exits in last {} days", days))
-        .description(lines.join("\n"));
+    let base_title = format!("Exits in last {} days", days);
+    let base_title_cont = base_title.clone();
 
-    ctx.send(poise::CreateReply::default().embed(embed)).await?;
+    send_chunked_embeds(
+        ctx,
+        lines,
+        move |desc| {
+            serenity::CreateEmbed::new()
+                .title(base_title.clone())
+                .description(desc)
+        },
+        move |idx, desc| {
+            serenity::CreateEmbed::new()
+                .title(format!("{base_title_cont} — cont. #{idx}"))
+                .description(desc)
+        },
+    )
+    .await?;
+
     Ok(())
 }
 
-/// Snapshot counts: current members, lifetime uniques, exits, bans, stints.
-#[poise::command(slash_command, guild_only)]
+/// Snapshot counts: current members, lifetime uniques, exits, bans, server stays.
+#[poise::command(slash_command, guild_only, rename = "current")]
 pub async fn stats_current(ctx: Ctx<'_>) -> Result<()> {
-    let gid = match ctx.guild_id() {
-        Some(g) => g,
-        None => {
-            ctx.say("Guild-only").await?;
-            return Ok(());
-        }
-    };
+    let gid = ctx
+        .guild_id()
+        .expect("guild_only command should always have a guild_id");
 
     let repo = MembershipsRepo::new(&ctx.data().db);
     let s = repo.stats_current(gid).await?;
@@ -181,22 +217,18 @@ pub async fn stats_current(ctx: Ctx<'_>) -> Result<()> {
 }
 
 /// Daily net member delta (joins - leaves) with totals and unique users.
-#[poise::command(slash_command, guild_only)]
+#[poise::command(slash_command, guild_only, rename = "delta")]
 pub async fn stats_member_balance(
     ctx: Ctx<'_>,
     #[description = "Days to look back (default 30)"] days: Option<i64>,
     #[description = "Max rows to scan (default 2000)"] cap: Option<i64>,
-) -> anyhow::Result<()> {
+) -> Result<()> {
     use chrono::{DateTime, Duration, NaiveDate, Utc};
     use std::collections::{BTreeMap, BTreeSet};
 
-    let gid = match ctx.guild_id() {
-        Some(g) => g,
-        None => {
-            ctx.say("Guild-only").await?;
-            return Ok(());
-        }
-    };
+    let gid = ctx
+        .guild_id()
+        .expect("guild_only command should always have a guild_id");
 
     let days = days.unwrap_or(30).clamp(1, 365);
     let cap = cap.unwrap_or(2000).clamp(100, 100_000);
@@ -306,10 +338,24 @@ pub async fn stats_member_balance(
         ));
     }
 
-    let embed = serenity::CreateEmbed::new()
-        .title(format!("Member balance (last {} days)", days))
-        .description(lines.join("\n"));
+    let base_title = format!("Member balance (last {} days)", days);
+    let base_title_cont = base_title.clone();
 
-    ctx.send(poise::CreateReply::default().embed(embed)).await?;
+    send_chunked_embeds(
+        ctx,
+        lines,
+        move |desc| {
+            serenity::CreateEmbed::new()
+                .title(base_title.clone())
+                .description(desc)
+        },
+        move |idx, desc| {
+            serenity::CreateEmbed::new()
+                .title(format!("{base_title_cont} — cont. #{idx}"))
+                .description(desc)
+        },
+    )
+    .await?;
+
     Ok(())
 }

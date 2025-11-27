@@ -1,10 +1,10 @@
 use anyhow::{Context as AnyhowContext, Result};
-use poise::{Command, Framework};
+use poise::Framework;
 use serenity::all::{CacheHttp, ClientBuilder, GatewayIntents, GuildId};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-use crate::commands::{lookup_ac, settings, stats, userinfo};
+use crate::commands::{member, settings, stats, userinfo};
 use crate::events::event_handler;
 use crate::state::AppState;
 
@@ -36,11 +36,8 @@ pub async fn run() -> Result<()> {
             commands: vec![
                 userinfo::userinfo(),
                 settings::settings(),
-                lookup_ac::userinfo_lookup(),
-                stats::stats_rejoiners(),
-                stats::stats_exits(),
-                stats::stats_current(),
-                stats::stats_member_balance(),
+                member::member(),
+                stats::stats(),
             ],
             event_handler: |ctx, event, framework, data| {
                 Box::pin(event_handler(ctx, event, framework, data))
@@ -49,22 +46,34 @@ pub async fn run() -> Result<()> {
         })
         .setup(move |ctx, _ready, framework| {
             Box::pin(async move {
+                // only register commands if no test guild is set
+
                 match poise::builtins::register_globally(ctx, &framework.options().commands).await {
                     Ok(_) => info!("Registered application commands globally"),
-                    Err(e) => eprintln!("Failed to register application commands globally: {e:#}"),
+                    Err(e) => {
+                        eprintln!("Failed to register application commands globally: {e:#}")
+                    }
                 }
+
                 // Register commands in a specific guild for faster iteration during development
                 if let Some(gid) = test_guild.as_ref() {
                     let gid = gid
                         .parse::<u64>()
                         .context("TEST_GUILD_ID must be a valid u64")?;
-                    poise::builtins::register_in_guild(
+                    match poise::builtins::register_in_guild(
                         ctx,
                         &framework.options().commands,
                         GuildId::new(gid),
                     )
-                    .await?;
-
+                    .await
+                    {
+                        Ok(_) => info!("Registered application commands in test guild {gid}"),
+                        Err(e) => {
+                            eprintln!(
+                                "Failed to register application commands in test guild {gid}: {e:#}"
+                            )
+                        }
+                    }
                 }
 
                 match ctx.http().get_global_commands().await {
@@ -82,24 +91,17 @@ pub async fn run() -> Result<()> {
         })
         .build();
 
-    // --- Serenity client ---
-    // Build the client and attach the framework
     let mut client = ClientBuilder::new(token, intents)
         .framework(framework)
         .await
         .context("Building serenity client failed")?;
 
-    // This should BLOCK until the shard runner ends (or we get a fatal error).
-    // If it returns, we log and return an Err so Docker sees a non-zero exit.
     info!("Connecting to Discord gateway…");
     if let Err(e) = client.start().await {
         // Network/auth/config error -> fail non-zero
         return Err(anyhow::anyhow!("Discord client error: {e:#}"));
     }
 
-    // If we got here, the shard runner ended gracefully.
-    // Treat this as an error so the container doesn't loop silently.
-    Err(anyhow::anyhow!(
-        "Discord client stopped unexpectedly without error"
-    ))
+    info!("Discord client disconnected gracefully.");
+    Ok(())
 }

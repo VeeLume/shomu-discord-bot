@@ -1,6 +1,6 @@
 use anyhow::Result;
-use sqlx::{Pool, Sqlite, sqlite::SqlitePoolOptions};
 use sqlx::migrate::MigrateDatabase;
+use sqlx::{Pool, Sqlite, sqlite::SqlitePoolOptions};
 
 #[derive(Clone)]
 pub struct Db {

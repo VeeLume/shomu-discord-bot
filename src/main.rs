@@ -3,15 +3,19 @@ mod commands;
 mod events;
 mod invites;
 mod state;
-mod flows;
 mod repos;
 mod db;
 
+// Avoid musl's default allocator due to lackluster performance
+// https://nickb.dev/blog/default-musl-allocator-considered-harmful-to-performance
+#[cfg(target_env = "musl")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 #[tokio::main]
 async fn main() {
-    eprintln!("boot: entering main");
     if let Err(e) = app::run().await {
-        eprintln!("Fatal error: {e:#}");
+        tracing::error!("Fatal error: {e:#}");
         std::process::exit(1);
     }
 }

@@ -17,7 +17,9 @@ pub struct GuildSettingsRepo<'a> {
 }
 
 impl<'a> GuildSettingsRepo<'a> {
-    pub fn new(db: &'a Db) -> Self { Self { db } }
+    pub fn new(db: &'a Db) -> Self {
+        Self { db }
+    }
 
     pub async fn get(&self, guild_id: &serenity::all::GuildId) -> Result<GuildSettings> {
         let guild = guild_id.to_string();
@@ -60,7 +62,7 @@ impl<'a> GuildSettingsRepo<'a> {
         let guild_id = guild_id.to_string();
         let join = join.map(|c| c.to_string());
         let leave = leave.map(|c| c.to_string());
-        let modu  = log_channel.map(|c| c.to_string());
+        let modu = log_channel.map(|c| c.to_string());
 
         sqlx::query!(
             r#"
@@ -84,7 +86,9 @@ impl<'a> GuildSettingsRepo<'a> {
         sqlx::query!(
             r#"INSERT INTO guild_settings (guild_id) VALUES (?) ON CONFLICT(guild_id) DO NOTHING"#,
             gid
-        ).execute(&self.db.pool).await?;
+        )
+        .execute(&self.db.pool)
+        .await?;
         Ok(())
     }
 
@@ -97,11 +101,50 @@ impl<'a> GuildSettingsRepo<'a> {
         let gid = guild_id.to_string();
         if let Some(id) = value {
             let q = format!("UPDATE guild_settings SET {column} = ? WHERE guild_id = ?");
-            sqlx::query(&q).bind(id.get().to_string()).bind(gid).execute(&self.db.pool).await?;
+            sqlx::query(&q)
+                .bind(id.get().to_string())
+                .bind(gid)
+                .execute(&self.db.pool)
+                .await?;
         } else {
             let q = format!("UPDATE guild_settings SET {column} = NULL WHERE guild_id = ?");
             sqlx::query(&q).bind(gid).execute(&self.db.pool).await?;
         }
         Ok(())
+    }
+
+    /// Convenience: get settings for this guild.
+    pub async fn get_for_guild(&self, guild_id: &serenity::all::GuildId) -> Result<GuildSettings> {
+        self.get(guild_id).await
+    }
+
+    /// Set join-log channel (or clear it if `None`).
+    pub async fn set_join_log(
+        &self,
+        guild_id: &serenity::all::GuildId,
+        channel: Option<ChannelId>,
+    ) -> Result<()> {
+        self.set_column(guild_id, "join_log_channel_id", channel)
+            .await
+    }
+
+    /// Set leave-log channel (or clear it if `None`).
+    pub async fn set_leave_log(
+        &self,
+        guild_id: &serenity::all::GuildId,
+        channel: Option<ChannelId>,
+    ) -> Result<()> {
+        self.set_column(guild_id, "leave_log_channel_id", channel)
+            .await
+    }
+
+    /// Set mod-log channel (or clear it if `None`).
+    pub async fn set_mod_log(
+        &self,
+        guild_id: &serenity::all::GuildId,
+        channel: Option<ChannelId>,
+    ) -> Result<()> {
+        self.set_column(guild_id, "mod_log_channel_id", channel)
+            .await
     }
 }
